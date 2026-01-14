@@ -1,0 +1,15 @@
+.git
+.DS_Store
+.cursor/
+.github/
+.git/
+deploy/
+.DS_Store
+logs/
+bin/
+node_modules/
+web/node_modules/
+web/dist/
+dist/
+build/
+*.zip

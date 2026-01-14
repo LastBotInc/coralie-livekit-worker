@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coralie-livekit-worker
+  namespace: realtime
+  labels:
+    app: coralie-livekit-worker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: coralie-livekit-worker
+  template:
+    metadata:
+      labels:
+        app: coralie-livekit-worker
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: coralie-livekit-worker
+        image: reg.r.lastbot.com/coralie-livekit-worker:production
+        imagePullPolicy: Always
+        env:
+        # Required: LiveKit server connection
+        - name: LIVEKIT_URL
+          value: "ws://localhost:7880"
+        - name: LIVEKIT_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: coralie-livekit-worker-secrets
+              key: livekit-api-key
+        - name: LIVEKIT_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: coralie-livekit-worker-secrets
+              key: livekit-api-secret
+        # Required: Coralie Conference Service
+        - name: CONFERENCE_GRPC
+          value: "coralie-conference-service:9090"
+        - name: CONFERENCE_WORKER_ID
+          value: "coralie-livekit-worker-1"
+        # Optional: Agent configuration
+        - name: LK_AGENT_NAME
+          value: ""
+        - name: LK_NAMESPACE
+          value: "default"
+        - name: LK_JOB_TYPE
+          value: "JT_ROOM"
+        # Optional: Performance and behavior
+        - name: LK_DRAIN_TIMEOUT
+          value: "30s"
+        - name: LK_MAX_CONCURRENT_JOBS
+          value: "8"
+        - name: LK_LOG_LEVEL
+          value: "info"
+        - name: LK_PPROF_ADDR
+          value: ""
+        - name: AGGRESSIVE_LOGGING
+          value: "false"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -f coralie-livekit-worker || exit 1"
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -f coralie-livekit-worker || exit 1"
+          initialDelaySeconds: 30
+          periodSeconds: 10
