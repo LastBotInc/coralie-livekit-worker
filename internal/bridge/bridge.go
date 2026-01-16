@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ type Bridge struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
+	egressID      string
 
 	// Ingress: LiveKit → Conference
 	ingressTracks map[string]*IngressTrack // participant identity -> track handler
@@ -57,11 +59,13 @@ func NewBridge(
 // Start starts the audio bridge.
 func (b *Bridge) Start() error {
 	// Create egress participant (receives mixed audio from all others, excluding bridge participants)
-	egressParticipantID := "lk-egress"
+	egressParticipantID := fmt.Sprintf("lk-egress-%s", randomParticipantSuffix(8))
 	egressParticipant, err := b.confClient.ConnectParticipant(b.roomName, egressParticipantID, "bridge-egress")
 	if err != nil {
 		return fmt.Errorf("connect egress participant: %w", err)
 	}
+
+	b.egressID = egressParticipantID
 
 	// Start egress handler
 	egress, err := NewEgress(b.room, egressParticipant)
@@ -94,7 +98,11 @@ func (b *Bridge) Stop() {
 	b.egressMu.Unlock()
 
 	// Disconnect egress participant
-	if err := b.confClient.DisconnectParticipant("lk-egress"); err != nil {
+	if b.egressID != "" {
+		if err := b.confClient.DisconnectParticipant(b.egressID); err != nil {
+			logging.Warning(logging.CategoryBridge, "failed to disconnect egress participant: %v", err)
+		}
+	} else if err := b.confClient.DisconnectParticipant("lk-egress"); err != nil {
 		logging.Warning(logging.CategoryBridge, "failed to disconnect egress participant: %v", err)
 	}
 
@@ -141,7 +149,7 @@ func (b *Bridge) HandleTrack(participant *lksdk.RemoteParticipant, track *webrtc
 	}
 
 	// Ensure conference participant exists (bridge-ingress: contributes audio but never receives egress)
-	participantID := fmt.Sprintf("lk:%s", identity)
+	participantID := fmt.Sprintf("lk:%s-%s", identity, randomParticipantSuffix(8))
 	confParticipant, err := b.confClient.ConnectParticipant(b.roomName, participantID, "bridge-ingress")
 	if err != nil {
 		logging.Error(logging.CategoryBridge, "failed to connect conference participant participant=%s: %v", participantID, err)
@@ -176,10 +184,28 @@ func (b *Bridge) RemoveTrack(participantIdentity string) {
 	if exists {
 		track.Stop()
 		// Disconnect conference participant
-		participantID := fmt.Sprintf("lk:%s", participantIdentity)
-		if err := b.confClient.DisconnectParticipant(participantID); err != nil {
-			logging.Warning(logging.CategoryBridge, "failed to disconnect conference participant participant=%s: %v", participantID, err)
+		if err := b.confClient.DisconnectParticipant(track.participantID); err != nil {
+			logging.Warning(logging.CategoryBridge, "failed to disconnect conference participant participant=%s: %v", track.participantID, err)
 		}
 		logging.Info(logging.CategoryBridge, "removed audio track participant=%s", participantIdentity)
 	}
+}
+
+func randomParticipantSuffix(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	if length <= 0 {
+		return ""
+	}
+	buf := make([]byte, length)
+	if _, err := rand.Read(buf); err != nil {
+		fallback := fmt.Sprintf("%x", time.Now().UnixNano())
+		if len(fallback) >= length {
+			return fallback[:length]
+		}
+		return fallback
+	}
+	for i := range buf {
+		buf[i] = charset[int(buf[i])%len(charset)]
+	}
+	return string(buf)
 }
