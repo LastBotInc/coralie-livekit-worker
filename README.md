@@ -45,10 +45,10 @@ LiveKit Room                    Coralie Conference
 - `LIVEKIT_API_KEY`: LiveKit API key
 - `LIVEKIT_API_SECRET`: LiveKit API secret
 - `CONFERENCE_GRPC`: Coralie conference service gRPC address (e.g., `localhost:9090`)
-- `CONFERENCE_WORKER_ID`: Worker ID for conference service registration (default: `coralie-livekit-worker-1`)
 
 ### Optional
 
+- `CONFERENCE_WORKER_ID`: Worker ID for conference service registration (default: `coralie-livekit-worker-1`)
 - `LK_AGENT_NAME`: Agent name for explicit dispatch mode
 - `LK_NAMESPACE`: Namespace for worker registration
 - `LK_JOB_TYPE`: Job type (`JT_ROOM` or `JT_PUBLISHER`, default: `JT_ROOM`)
@@ -56,7 +56,10 @@ LiveKit Room                    Coralie Conference
 - `LK_MAX_CONCURRENT_JOBS`: Maximum concurrent jobs (default: `8`)
 - `LK_LOG_LEVEL`: Log level (default: `info`)
 - `LK_PPROF_ADDR`: pprof HTTP server address (e.g., `127.0.0.1:6060`)
+- `LK_JOB_TIMEOUT`: Max runtime per job (default: `5m`)
 - `AGGRESSIVE_LOGGING`: Enable aggressive logging (default: `false`)
+
+Flags override `.env`/environment values; run `./bin/coralie-livekit-worker -h` to see flag names.
 
 ## Running Locally
 
@@ -199,10 +202,7 @@ Run unit tests:
 make test
 ```
 
-Tests cover:
-- Config parsing
-- Opcode routing/teardown logic (simulate control handler calls; verify cancel called, job stops)
-- Resampling pipeline buffer reuse (optional benchmarks)
+No automated tests are currently checked in; `make test` will run `go test ./...` once tests are added.
 
 ## Docker
 
@@ -249,4 +249,4 @@ coralie-livekit-worker/
 
 ## License
 
-[Add your license here]
+License not specified.
