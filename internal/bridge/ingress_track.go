@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"strings"
 	"sync"
 
 	"coralie-conference-service/pkg/workersdk"
@@ -264,8 +263,4 @@ func (t *IngressTrack) resample48kTo24k(samples48k []int16) ([]int16, error) {
 	result := make([]int16, outputSize)
 	copy(result, outputSamples)
 	return result, nil
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || strings.Contains(s, substr))
 }
