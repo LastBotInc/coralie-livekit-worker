@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"coralie-conference-service/pkg/workersdk"
 	"github.com/livekit/protocol/livekit"
@@ -95,6 +96,14 @@ func (e *Egress) Start() {
 	logging.Info(logging.CategoryBridge, "started egress processing")
 }
 
+// UpdateParticipant updates the egress participant (used during conference merge).
+func (e *Egress) UpdateParticipant(newParticipant *workersdk.Participant) {
+	e.egressMu.Lock()
+	defer e.egressMu.Unlock()
+	e.participant = newParticipant
+	logging.Info(logging.CategoryBridge, "updated egress participant participant_id=%s conference_id=%s", newParticipant.ParticipantID, newParticipant.ConferenceID)
+}
+
 // Stop stops the egress handler.
 func (e *Egress) Stop() {
 	e.cancel()
@@ -128,14 +137,67 @@ func (e *Egress) processEgress() {
 	frame24k := make([]int16, 480) // 480 samples = 20ms @ 24kHz
 	hold := make([]int16, 0, 960)  // Buffer for partial frames
 
+	ticker := time.NewTicker(100 * time.Millisecond) // Check for participant updates every 100ms
+	defer ticker.Stop()
+
 	for {
+		// Re-fetch participant to get current reference (may have changed during merge)
+		e.egressMu.Lock()
+		currentParticipant := e.participant
+		e.egressMu.Unlock()
+
+		if currentParticipant == nil {
+			logging.Info(logging.CategoryBridge, "egress participant is nil, stopping")
+			return
+		}
+
+		egressChan := currentParticipant.EgressChan
+
+		// Block on context done, ticker (to check for participant updates), or egress channel
 		select {
 		case <-e.ctx.Done():
 			return
-		case frame, ok := <-e.participant.EgressChan:
+		case <-ticker.C:
+			// Check if participant was updated (e.g., during conference merge)
+			e.egressMu.Lock()
+			recheckParticipant := e.participant
+			e.egressMu.Unlock()
+			if recheckParticipant == nil {
+				return
+			}
+			if recheckParticipant != currentParticipant {
+				// Participant was updated - continue loop to use new participant's channel
+				logging.Info(logging.CategoryBridge, "egress participant updated, switching to new egress channel")
+				continue
+			}
+			// Participant unchanged, continue waiting
+			continue
+		case frame, ok := <-egressChan:
 			if !ok {
+				// Channel closed - check if participant was updated
+				e.egressMu.Lock()
+				recheckParticipant := e.participant
+				e.egressMu.Unlock()
+				if recheckParticipant != nil && recheckParticipant != currentParticipant {
+					// Participant was updated - continue with new participant
+					logging.Info(logging.CategoryBridge, "egress channel closed but participant was updated, switching to new channel")
+					continue
+				}
+				// Channel closed and participant not updated - participant disconnected
 				logging.Info(logging.CategoryBridge, "egress channel closed")
 				return
+			}
+			// Re-check participant after receiving frame - it might have been updated during merge
+			e.egressMu.Lock()
+			recheckParticipant := e.participant
+			e.egressMu.Unlock()
+			if recheckParticipant == nil {
+				return
+			}
+			if recheckParticipant != currentParticipant {
+				// Participant was updated during frame receive - skip this frame and continue with new participant
+				logging.Info(logging.CategoryBridge, "egress participant updated during frame receive, continuing with new participant")
+				continue
 			}
 			
 			// Don't log every frame - too spammy

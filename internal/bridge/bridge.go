@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"coralie-conference-service/pkg/workersdk"
+
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	"github.com/pion/webrtc/v4"
 
@@ -17,21 +18,21 @@ import (
 
 // Bridge handles bidirectional audio forwarding between LiveKit and Coralie conference.
 type Bridge struct {
-	room          *lksdk.Room
-	confClient    *workersdk.Client
-	roomName      string
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
-	egressID      string
+	room       *lksdk.Room
+	confClient *workersdk.Client
+	roomName   string
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+	egressID   string
 
 	// Ingress: LiveKit → Conference
 	ingressTracks map[string]*IngressTrack // participant identity -> track handler
-	ingressMu      sync.RWMutex
+	ingressMu     sync.RWMutex
 
 	// Egress: Conference → LiveKit
-	egress         *Egress
-	egressMu       sync.Mutex
+	egress   *Egress
+	egressMu sync.Mutex
 
 	// Transcription tap (optional)
 	tap transcribe.Tap
@@ -45,7 +46,7 @@ func NewBridge(
 	tap transcribe.Tap,
 ) *Bridge {
 	ctx, cancel := context.WithCancel(context.Background())
-		return &Bridge{
+	return &Bridge{
 		room:          room,
 		confClient:    confClient,
 		roomName:      roomName,
@@ -81,6 +82,33 @@ func (b *Bridge) Start() error {
 	egress.Start()
 	logging.Info(logging.CategoryBridge, "audio bridge started roomName=%s", b.roomName)
 
+	return nil
+}
+
+// MergeToConference merges the bridge to a new conference.
+// This reconnects the egress participant to the target conference.
+func (b *Bridge) MergeToConference(targetConferenceID string) error {
+	logging.Info(logging.CategoryBridge, "merging bridge from %s to %s", b.roomName, targetConferenceID)
+
+	// Reconnect egress participant to target conference
+	b.egressMu.Lock()
+	defer b.egressMu.Unlock()
+
+	if b.egress == nil {
+		return fmt.Errorf("egress not initialized")
+	}
+
+	// Reconnect egress participant to target conference
+	newEgressParticipant, err := b.confClient.ConnectParticipant(targetConferenceID, b.egressID, "bridge-egress")
+	if err != nil {
+		return fmt.Errorf("failed to reconnect egress participant: %w", err)
+	}
+
+	// Update egress participant
+	b.egress.UpdateParticipant(newEgressParticipant)
+	b.roomName = targetConferenceID // Update room name to match new conference
+
+	logging.Info(logging.CategoryBridge, "successfully merged bridge to %s", targetConferenceID)
 	return nil
 }
 

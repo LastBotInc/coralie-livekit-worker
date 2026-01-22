@@ -49,6 +49,31 @@ func (j *Job) Run(ctx context.Context) error {
 			logging.Info(logging.CategoryJob, "received opcode opcode=%s conferenceID=%s participantID=%s", opcode, conferenceID, participantID)
 		}
 
+		// Handle merge_conferences opcode
+		if opcode == "merge_conferences" {
+			targetConferenceID := parameters["target_conference_id"]
+			if targetConferenceID == "" {
+				logging.Warning(logging.CategoryJob, "merge_conferences: missing target_conference_id parameter")
+				return
+			}
+
+			// Check if this merge affects our bridge (if conferenceID matches our room name)
+			if conferenceID == j.RoomName {
+				logging.Info(logging.CategoryJob, "merge_conferences: merging bridge from %s to %s", conferenceID, targetConferenceID)
+				
+				// Update the bridge to use the new conference
+				if audioBridge != nil {
+					if err := audioBridge.MergeToConference(targetConferenceID); err != nil {
+						logging.Error(logging.CategoryJob, "merge_conferences: failed to merge bridge: %v", err)
+					} else {
+						logging.Info(logging.CategoryJob, "merge_conferences: successfully merged bridge to %s", targetConferenceID)
+					}
+				}
+			}
+
+			return
+		}
+
 		// Handle disconnect/leave opcodes
 		if opcode == "disconnect" || opcode == "leave_conference" {
 			// Check if this targets our job/worker
